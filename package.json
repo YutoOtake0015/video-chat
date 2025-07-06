@@ -3,7 +3,9 @@
     "ejs": "^3.1.10",
     "express": "^5.1.0",
     "nodemon": "^3.1.10",
+    "peerjs": "^1.5.5",
     "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "uuid": "^11.1.0"
   },
   "name": "video-chat-app",

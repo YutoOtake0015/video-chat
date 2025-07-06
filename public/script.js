@@ -1,11 +1,24 @@
 const socket = io("/");
-const myPeer = new Peer();
 const videoWrap = document.getElementById("video-wrap");
 const myVideo = document.createElement("video");
 myVideo.muted = true;
 
-const peer = {};
-let myVideoStream;
+let localStream;
+let remoteStream;
+let peerStream;
+
+const config = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
+
+const constraints = {
+  video: true,
+  audio: true,
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
 const addVideoStream = (video, stream) => {
   video.srcObject = stream;
   video.addEventListener("loadedmetadata", () => {
@@ -14,85 +27,136 @@ const addVideoStream = (video, stream) => {
   videoWrap.append(video);
 };
 
-const connectToNewUser = (userId, stream) => {
-  const call = myPeer.call(userId, stream);
-  const video = document.createElement("video");
+const createPeerConnection = () => {
+  peerConnection = new RTCPeerConnection(config);
 
-  call.on("stream", (userVideoStream) => {
-    addVideoStream(video, userVideoStream);
-  });
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("ice-candidate", event.candidate);
+    }
+  };
 
-  call.on("close", () => {
-    video.remove();
-  });
+  peerConnection.ontrack = (event) => {
+    if (!remoteStream) {
+      remoteStream = new MediaStream();
+      const remoteVideo = document.createElement("video");
+      remoteVideo.srcObject = remoteStream;
+      remoteVideo.autoplay = true;
+      remoteVideo.playsInline = true;
+      videoWrap.append(remoteVideo);
+    }
+    remoteStream.addTrack(event.track);
+  };
 
-  peer[userId] = call;
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log("ICE state:", peerConnection.iceConnectionState);
+  };
 };
 
+// メディア取得と接続処理
 navigator.mediaDevices
-  .getUserMedia({
-    video: true,
-    audio: true,
-  })
+  .getUserMedia(constraints)
   .then((stream) => {
-    myVideoStream = stream;
+    localStream = stream;
     addVideoStream(myVideo, stream);
 
-    myPeer.on("call", (call) => {
-      call.answer(stream);
-      const video = document.createElement("video");
-      call.on("stream", (userVideoStream) => {
-        addVideoStream(video, userVideoStream);
+    socket.emit("join-room", ROOM_ID);
+
+    socket.on("user-connected", () => {
+      createPeerConnection();
+      localStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, localStream);
       });
+
+      peerConnection
+        .createOffer()
+        .then((offer) => {
+          return peerConnection.setLocalDescription(offer);
+        })
+        .then(() => {
+          socket.emit("offer", peerConnection.localDescription);
+        });
     });
 
-    socket.on("user-connected", (userId) => {
-      connectToNewUser(userId, stream);
+    socket.on("offer", (offer) => {
+      createPeerConnection();
+      peerConnection
+        .setRemoteDescription(new RTCSessionDescription(offer))
+        .then(() => {
+          localStream.getTracks().forEach((track) => {
+            peerConnection.addTrack(track, localStream);
+          });
+          return peerConnection.createAnswer();
+        })
+        .then((answer) => {
+          return peerConnection.setLocalDescription(answer);
+        })
+        .then(() => {
+          socket.emit("answer", peerConnection.localDescription);
+        });
     });
+
+    socket.on("answer", (answer) => {
+      peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on("ice-candidate", (candidate) => {
+      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    socket.on("user-disconnected", () => {
+      console.log("Peer disconnected");
+
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+
+      // 相手の映像だけを削除（自分の映像は muted なので残す）
+      const remoteVideos = document.querySelectorAll("video");
+      remoteVideos.forEach((video) => {
+        if (!video.muted) video.remove();
+      });
+
+      remoteStream = null;
+    });
+  })
+  .catch((err) => {
+    console.error("Media error:", err);
   });
 
-socket.on("user-disconnected", (userId) => {
-  console.log("user disconnected", userId);
-  if (peer[userId]) peer[userId].close();
-});
+function toggleAudio(button) {
+  if (!localStream) return;
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) return;
 
-myPeer.on("open", (userId) => {
-  socket.emit("join-room", ROOM_ID, userId);
-});
+  audioTrack.enabled = !audioTrack.enabled;
+  button.classList.toggle("active", !audioTrack.enabled);
+  console.log("Audio " + (audioTrack.enabled ? "unmuted" : "muted"));
+}
 
-myPeer.on("disconnect", (id) => {
-  console.log("disconnected from peer server", id);
-});
+function toggleVideo(button) {
+  if (!localStream) return;
+  const videoTrack = localStream.getVideoTracks()[0];
+  if (!videoTrack) return;
 
-const muteUnmute = (e) => {
-  const enabled = myVideoStream.getAudioTracks()[0].enabled;
+  videoTrack.enabled = !videoTrack.enabled;
+  button.classList.toggle("active", !videoTrack.enabled);
+  console.log("Video " + (videoTrack.enabled ? "enabled" : "disabled"));
+}
 
-  if (enabled) {
-    e.classList.add("active");
-    myVideoStream.getAudioTracks()[0].enabled = false;
-  } else {
-    e.classList.remove("active");
-    myVideoStream.getAudioTracks()[0].enabled = true;
+function leaveCall(button) {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
   }
-};
 
-const playStop = (e) => {
-  const enabled = myVideoStream.getVideoTracks()[0].enabled;
-  if (enabled) {
-    e.classList.add("active");
-    myVideoStream.getVideoTracks()[0].enabled = false;
-  } else {
-    e.classList.remove("active");
-    myVideoStream.getVideoTracks()[0].enabled = true;
-  }
-};
+  socket.emit("manual-disconnect");
 
-const leaveVideo = (e) => {
+  const videos = document.querySelectorAll("video");
+  videos.forEach((video) => video.remove());
+
   socket.disconnect();
-  myPeer.disconnect();
 
-  const videos = document.getElementsByTagName("video");
-  for (let i = 0; i < videos.length; --i) {
-    videos[i].remove();
-  }
-};
+  console.log("Call ended");
+}

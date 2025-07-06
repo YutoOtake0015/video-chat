@@ -18,11 +18,28 @@ app.get("/:room", (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  socket.on("join-room", (roomId, userId) => {
+  socket.on("join-room", (roomId) => {
     socket.join(roomId);
-    socket.to(roomId).emit("user-connected", userId);
+    socket.to(roomId).emit("user-connected");
+
+    socket.on("offer", (offer) => {
+      socket.to(roomId).emit("offer", offer);
+    });
+
+    socket.on("answer", (answer) => {
+      socket.to(roomId).emit("answer", answer);
+    });
+
+    socket.on("ice-candidate", (candidate) => {
+      socket.to(roomId).emit("ice-candidate", candidate);
+    });
+
+    socket.on("manual-disconnect", () => {
+      socket.to(roomId).emit("user-disconnected");
+    });
+
     socket.on("disconnect", () => {
-      socket.to(roomId).emit("user-disconnected", userId);
+      socket.to(roomId).emit("user-disconnected");
     });
   });
 });
