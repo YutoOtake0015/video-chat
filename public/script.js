@@ -74,6 +74,7 @@ navigator.mediaDevices
         peerConnection.addTrack(track, localStream);
       });
 
+      // オファー生成
       peerConnection
         .createOffer()
         .then((offer) => {
@@ -84,6 +85,7 @@ navigator.mediaDevices
         });
     });
 
+    // オファー取得
     socket.on("offer", (offer) => {
       createPeerConnection();
       peerConnection
@@ -102,14 +104,17 @@ navigator.mediaDevices
         });
     });
 
+    // アンサー取得
     socket.on("answer", (answer) => {
       peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
     });
 
+    // ICE候補取得
     socket.on("ice-candidate", (candidate) => {
       peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     });
 
+    // 切断
     socket.on("user-disconnected", () => {
       console.log("Peer disconnected");
 
@@ -118,7 +123,7 @@ navigator.mediaDevices
         peerConnection = null;
       }
 
-      // 相手の映像だけを削除（自分の映像は muted なので残す）
+      // 相手の映像を削除
       const remoteVideos = document.querySelectorAll("video");
       remoteVideos.forEach((video) => {
         if (!video.muted) video.remove();
@@ -131,6 +136,7 @@ navigator.mediaDevices
     console.error("Media error:", err);
   });
 
+// 音声ON/OFF
 function toggleAudio(button) {
   if (!localStream) return;
   const audioTrack = localStream.getAudioTracks()[0];
@@ -141,6 +147,7 @@ function toggleAudio(button) {
   console.log("Audio " + (audioTrack.enabled ? "unmuted" : "muted"));
 }
 
+// 映像ON/OFF
 function toggleVideo(button) {
   if (!localStream) return;
   const videoTrack = localStream.getVideoTracks()[0];
@@ -151,6 +158,7 @@ function toggleVideo(button) {
   console.log("Video " + (videoTrack.enabled ? "enabled" : "disabled"));
 }
 
+// 退室
 function leaveCall(button) {
   if (peerConnection) {
     peerConnection.close();
