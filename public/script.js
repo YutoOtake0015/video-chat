@@ -16,7 +16,6 @@ const constraints = {
   audio: true,
   echoCancellation: true,
   noiseSuppression: true,
-  autoGainControl: true,
 };
 
 const addVideoStream = (video, stream) => {
@@ -27,16 +26,20 @@ const addVideoStream = (video, stream) => {
   videoWrap.append(video);
 };
 
+// P2P通信の生成
 const createPeerConnection = () => {
   peerConnection = new RTCPeerConnection(config);
 
-  peerConnection.onicecandidate = (event) => {
+  // イベント登録
+  // ICE候補が見つかるたび実行
+  peerConnection.addEventListener("icecandidate", (event) => {
     if (event.candidate) {
       socket.emit("ice-candidate", event.candidate);
     }
-  };
+  });
 
-  peerConnection.ontrack = (event) => {
+  // メディアトラックを取得するたび実行
+  peerConnection.addEventListener("track", (event) => {
     if (!remoteStream) {
       remoteStream = new MediaStream();
       const remoteVideo = document.createElement("video");
@@ -46,11 +49,12 @@ const createPeerConnection = () => {
       videoWrap.append(remoteVideo);
     }
     remoteStream.addTrack(event.track);
-  };
+  });
 
-  peerConnection.oniceconnectionstatechange = () => {
+  // 接続情報が変更されるたび実行
+  peerConnection.addEventListener("oniceconnectionstatechange", (event) => {
     console.log("ICE state:", peerConnection.iceConnectionState);
-  };
+  });
 };
 
 // メディア取得と接続処理
@@ -60,8 +64,10 @@ navigator.mediaDevices
     localStream = stream;
     addVideoStream(myVideo, stream);
 
+    // ルームに入室
     socket.emit("join-room", ROOM_ID);
 
+    // ICE接続状態が変化時に発火
     socket.on("user-connected", () => {
       createPeerConnection();
       localStream.getTracks().forEach((track) => {
