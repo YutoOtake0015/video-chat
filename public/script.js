@@ -28,7 +28,7 @@ const addVideoStream = (video, stream) => {
 
 // P2P通信の生成
 const createPeerConnection = () => {
-  peerConnection = new RTCPeerConnection(config);
+  const peerConnection = new RTCPeerConnection(config);
 
   // イベント登録
   // ICE候補が見つかるたび実行
